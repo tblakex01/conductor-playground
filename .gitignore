@@ -1,0 +1,7 @@
+# gstack runtime artifacts (vendored at .claude/skills/gstack/)
+.gstack/
+.gstack-worktrees/
+.claude/scheduled_tasks.lock
+.claude/*.lock
+.env
+*.log
