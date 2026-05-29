@@ -137,23 +137,11 @@
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 3);
     const frozen = this.state === "ended" || this.state === "paused";
     if (this.terrain && this.lander) {
-      this._applyShake();
-      this.renderer.render(dt, { frozen });
-      this._restoreShake();
+      // Shake is applied inside render(), after the background is cleared,
+      // so clearRect is never offset (no uncleared bands at the edges).
+      this.renderer.render(dt, { frozen, shake: this.shake });
     }
     requestAnimationFrame(this._loop);
-  };
-
-  Game.prototype._applyShake = function () {
-    if (this.shake <= 0) return;
-    const ctx = this.renderer.ctx;
-    ctx.save();
-    const amp = this.shake * 14;
-    ctx.translate((Math.random() - 0.5) * amp, (Math.random() - 0.5) * amp);
-  };
-  Game.prototype._restoreShake = function () {
-    if (this.shake <= 0) return;
-    this.renderer.ctx.restore();
   };
 
   // ---- Physics step + collision --------------------------------------------
@@ -219,7 +207,7 @@
         title: "VEHICLE LOST",
         message:
           "Hard impact — " + reasons.join(", ") + ". The lander did not survive touchdown.",
-        stats: this._stats(descend, ax, tilt, onPad, distToCenter),
+        stats: this._stats(descend, ax, tilt, onPad),
         score: 0,
       };
     } else {
@@ -267,7 +255,7 @@
       result = {
         success: true,
         grade, title, message,
-        stats: this._stats(descend, ax, tilt, onPad, distToCenter),
+        stats: this._stats(descend, ax, tilt, onPad),
         score,
       };
     }
@@ -279,7 +267,7 @@
     if (this.callbacks.onEnd) this.callbacks.onEnd(result);
   };
 
-  Game.prototype._stats = function (descend, ax, tilt, onPad, dist) {
+  Game.prototype._stats = function (descend, ax, tilt, onPad) {
     return [
       { label: "DESCENT RATE", value: descend.toFixed(2) + " m/s" },
       { label: "LATERAL VEL", value: ax.toFixed(2) + " m/s" },

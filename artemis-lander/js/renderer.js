@@ -102,8 +102,19 @@
     this.cam.y = U.lerp(this.cam.y, this.camTarget.y, k);
     this.cam.scale = U.lerp(this.cam.scale, this.camTarget.scale, k);
 
+    // Clear and paint the background in the untransformed frame so that the
+    // clearRect/background fill always cover the full canvas. Impact shake is
+    // applied only to the scene on top, avoiding uncleared bands at the edges.
     ctx.clearRect(0, 0, this.W, this.H);
     this._drawSky();
+
+    const shake = opts.shake || 0;
+    if (shake > 0) {
+      ctx.save();
+      const amp = shake * 14;
+      ctx.translate((Math.random() - 0.5) * amp, (Math.random() - 0.5) * amp);
+    }
+
     this._drawStars(dt);
     this._drawEarth();
     this._drawTerrain();
@@ -112,6 +123,8 @@
     this._drawParticles();
     this._drawLander();
     this._drawApproachVector(opts);
+
+    if (shake > 0) ctx.restore();
   };
 
   // ---- Background -----------------------------------------------------------

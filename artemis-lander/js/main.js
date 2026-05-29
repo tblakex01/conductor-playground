@@ -66,13 +66,34 @@
 
       $("end-msg").textContent = result.message;
 
-      $("end-stats").innerHTML = result.stats
-        .map((s) => `<div class="stat"><div class="stat__label">${s.label}</div><div class="stat__value">${s.value}</div></div>`)
-        .join("");
+      // Build the stats grid with DOM nodes (no innerHTML) to stay XSS-safe.
+      const statsEl = $("end-stats");
+      statsEl.textContent = "";
+      result.stats.forEach((s) => {
+        const cell = document.createElement("div");
+        cell.className = "stat";
+        const label = document.createElement("div");
+        label.className = "stat__label";
+        label.textContent = s.label;
+        const value = document.createElement("div");
+        value.className = "stat__value";
+        value.textContent = s.value;
+        cell.append(label, value);
+        statsEl.append(cell);
+      });
 
-      $("end-score").innerHTML = result.success
-        ? `MISSION SCORE · <span class="score__num">${result.score.toLocaleString()}</span>`
-        : `<span class="score__num" style="color:var(--red)">NO SCORE</span>`;
+      const scoreEl = $("end-score");
+      scoreEl.textContent = "";
+      const num = document.createElement("span");
+      num.className = "score__num";
+      if (result.success) {
+        scoreEl.append(document.createTextNode("MISSION SCORE · "));
+        num.textContent = result.score.toLocaleString();
+      } else {
+        num.style.color = "var(--red)";
+        num.textContent = "NO SCORE";
+      }
+      scoreEl.append(num);
 
       // Brief delay so the crash shake/debris is visible before the panel.
       setTimeout(() => {

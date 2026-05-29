@@ -34,9 +34,9 @@
     };
   }
 
-  // Parent of a readout value <span> is the .readout__value element.
+  // Resolve the enclosing .readout__value container (robust to DOM nesting).
   function setState(span, cls) {
-    const v = span.parentElement;
+    const v = span.closest(".readout__value") || span.parentElement;
     v.classList.remove("is-warn", "is-danger", "is-ok");
     if (cls) v.classList.add(cls);
   }
