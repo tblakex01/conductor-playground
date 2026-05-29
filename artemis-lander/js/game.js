@@ -156,13 +156,15 @@
 
     this.met += dt;
 
+    // Keep within world bounds horizontally before any terrain query, so
+    // groundH, the phase label, the touchdown snap, and _evaluateLanding
+    // (isOnPad / slopeAt) all sample the same x coordinate.
+    l.x = U.clamp(l.x, 30, CONFIG.WORLD.width - 30);
+
     // Phase label by altitude.
     const groundH = this.terrain.heightAt(l.x);
     const alt = l.y - groundH;
     this.phaseLabel = alt > 500 ? "BRAKING" : alt > 150 ? "APPROACH" : "TERMINAL";
-
-    // Keep within world bounds horizontally.
-    l.x = U.clamp(l.x, 30, CONFIG.WORLD.width - 30);
 
     // Ground contact.
     if (l.y <= groundH) {
