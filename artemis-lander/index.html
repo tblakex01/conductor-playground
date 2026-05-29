@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Artemis Moon Landing Simulator — pilot a lunar lander to the surface with realistic physics, fuel constraints, and a NASA-style guidance system." />
+  <title>ARTEMIS · Lunar Descent Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ===== Simulation canvas ===== -->
+    <canvas id="scene"></canvas>
+
+    <!-- ===== Heads-up guidance overlay ===== -->
+    <div id="hud" class="hud" aria-hidden="false">
+
+      <!-- Top mission bar -->
+      <header class="hud__topbar">
+        <div class="brand">
+          <span class="brand__logo">▲</span>
+          <span class="brand__name">ARTEMIS</span>
+          <span class="brand__sub">LUNAR DESCENT</span>
+        </div>
+        <div class="topbar__mid">
+          <span class="met-label">MET</span>
+          <span id="met" class="met-value">00:00.0</span>
+        </div>
+        <div class="topbar__right">
+          <span id="phase" class="phase-pill">PRE-LAUNCH</span>
+        </div>
+      </header>
+
+      <!-- Left telemetry stack -->
+      <section class="panel panel--left" aria-label="Primary telemetry">
+        <div class="readout">
+          <span class="readout__label">ALTITUDE</span>
+          <span class="readout__value"><span id="r-alt">0</span><i class="unit">m</i></span>
+        </div>
+        <div class="readout">
+          <span class="readout__label">DESCENT RATE</span>
+          <span class="readout__value"><span id="r-vy">0.0</span><i class="unit">m/s</i></span>
+        </div>
+        <div class="readout">
+          <span class="readout__label">LATERAL VEL</span>
+          <span class="readout__value"><span id="r-vx">0.0</span><i class="unit">m/s</i></span>
+        </div>
+        <div class="readout">
+          <span class="readout__label">DOWNRANGE</span>
+          <span class="readout__value"><span id="r-range">0</span><i class="unit">m</i></span>
+        </div>
+        <div class="readout">
+          <span class="readout__label">ATTITUDE</span>
+          <span class="readout__value"><span id="r-tilt">0</span><i class="unit">°</i></span>
+        </div>
+      </section>
+
+      <!-- Right systems stack -->
+      <section class="panel panel--right" aria-label="Propulsion and systems">
+        <div class="gauge">
+          <div class="gauge__head">
+            <span class="readout__label">PROPELLANT</span>
+            <span class="gauge__pct"><span id="r-fuelpct">100</span>%</span>
+          </div>
+          <div class="bar"><div id="fuel-bar" class="bar__fill bar__fill--fuel"></div></div>
+          <span class="gauge__sub"><span id="r-fuelkg">0</span> kg</span>
+        </div>
+        <div class="gauge">
+          <div class="gauge__head">
+            <span class="readout__label">THROTTLE</span>
+            <span class="gauge__pct"><span id="r-thrpct">0</span>%</span>
+          </div>
+          <div class="bar"><div id="thr-bar" class="bar__fill bar__fill--thr"></div></div>
+          <span class="gauge__sub"><span id="r-thrust">0</span> kN</span>
+        </div>
+        <div class="readout readout--inline">
+          <span class="readout__label">VEHICLE MASS</span>
+          <span class="readout__value"><span id="r-mass">0</span><i class="unit">kg</i></span>
+        </div>
+      </section>
+
+      <!-- Attitude indicator (artificial horizon) -->
+      <div class="adi" aria-label="Attitude director indicator">
+        <div class="adi__ring">
+          <div id="adi-ball" class="adi__ball">
+            <div class="adi__sky"></div>
+            <div class="adi__ground"></div>
+            <div class="adi__line"></div>
+          </div>
+          <div class="adi__bracket adi__bracket--l"></div>
+          <div class="adi__bracket adi__bracket--r"></div>
+          <div class="adi__center"></div>
+        </div>
+        <span class="adi__caption">ATTITUDE</span>
+      </div>
+
+      <!-- Caution & warning panel -->
+      <div class="cw" aria-label="Caution and warning">
+        <div id="cw-master" class="cw__master">MASTER<br>ALARM</div>
+        <div class="cw__lights">
+          <span id="cw-fuel" class="cw__light">FUEL</span>
+          <span id="cw-vel" class="cw__light">VELOCITY</span>
+          <span id="cw-tilt" class="cw__light">ATTITUDE</span>
+          <span id="cw-prox" class="cw__light">PROXIMITY</span>
+        </div>
+      </div>
+
+      <!-- On-screen touch controls -->
+      <div id="touch-controls" class="touch">
+        <button class="touch__btn" data-key="ArrowLeft" aria-label="Rotate left">⟲</button>
+        <div class="touch__throttle">
+          <button class="touch__btn touch__btn--up" data-key="ArrowUp" aria-label="Throttle up">▲</button>
+          <button class="touch__btn touch__btn--down" data-key="ArrowDown" aria-label="Throttle down">▼</button>
+        </div>
+        <button class="touch__btn" data-key="ArrowRight" aria-label="Rotate right">⟳</button>
+      </div>
+    </div>
+
+    <!-- ===== Start / briefing screen ===== -->
+    <div id="screen-start" class="screen">
+      <div class="screen__card">
+        <div class="screen__badge">NASA · ARTEMIS PROGRAM</div>
+        <h1 class="screen__title">LUNAR DESCENT<br>SIMULATOR</h1>
+        <p class="screen__lede">
+          You are the pilot of the Artemis Human Landing System on final approach to the
+          lunar South Pole. Manage your descent engine and propellant to touch down softly
+          on the landing pad. The Moon's gravity is unforgiving and there is no air to slow you down.
+        </p>
+
+        <div class="diff">
+          <span class="diff__label">SELECT MISSION PROFILE</span>
+          <div class="diff__opts" id="diff-opts">
+            <button class="diff__opt" data-diff="cadet">
+              <strong>CADET</strong><small>Generous fuel · gentle terrain · forgiving limits</small>
+            </button>
+            <button class="diff__opt is-active" data-diff="commander">
+              <strong>COMMANDER</strong><small>Realistic fuel · mixed terrain · standard limits</small>
+            </button>
+            <button class="diff__opt" data-diff="ace">
+              <strong>ACE</strong><small>Minimal fuel · hazardous terrain · tight limits</small>
+            </button>
+          </div>
+        </div>
+
+        <button id="btn-launch" class="btn btn--primary">BEGIN DESCENT</button>
+
+        <details class="controls-help">
+          <summary>FLIGHT CONTROLS</summary>
+          <ul>
+            <li><kbd>W</kbd> / <kbd>↑</kbd> &nbsp;Throttle up (main descent engine)</li>
+            <li><kbd>S</kbd> / <kbd>↓</kbd> &nbsp;Throttle down</li>
+            <li><kbd>A</kbd> / <kbd>←</kbd> &nbsp;Rotate left (RCS)</li>
+            <li><kbd>D</kbd> / <kbd>→</kbd> &nbsp;Rotate right (RCS)</li>
+            <li><kbd>Space</kbd> &nbsp;Cut throttle (abort burn)</li>
+            <li><kbd>0</kbd>–<kbd>9</kbd> &nbsp;Set throttle 0–90%</li>
+            <li><kbd>R</kbd> &nbsp;Restart &nbsp;·&nbsp; <kbd>P</kbd> &nbsp;Pause</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+
+    <!-- ===== End-of-mission screen ===== -->
+    <div id="screen-end" class="screen screen--hidden">
+      <div class="screen__card">
+        <div id="end-badge" class="screen__badge">MISSION COMPLETE</div>
+        <h2 id="end-title" class="screen__title screen__title--sm">TOUCHDOWN</h2>
+        <p id="end-msg" class="screen__lede"></p>
+        <div id="end-stats" class="stats"></div>
+        <div id="end-score" class="score"></div>
+        <button id="btn-again" class="btn btn--primary">FLY AGAIN</button>
+      </div>
+    </div>
+
+    <!-- ===== Pause overlay ===== -->
+    <div id="screen-pause" class="screen screen--hidden screen--dim">
+      <div class="screen__card screen__card--slim">
+        <h2 class="screen__title screen__title--sm">PAUSED</h2>
+        <button id="btn-resume" class="btn btn--primary">RESUME</button>
+        <button id="btn-abort" class="btn btn--ghost">ABORT TO MENU</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/terrain.js"></script>
+  <script src="js/physics.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/hud.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
