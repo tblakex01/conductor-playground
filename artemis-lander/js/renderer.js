@@ -31,7 +31,9 @@
     this.resize();
     this._makeStars();
 
-    U.loadFirstImage(CONFIG.ASSETS.earth).then((img) => { this.earthImg = img; });
+    U.loadFirstImage(CONFIG.ASSETS.earth)
+      .then((img) => { this.earthImg = img; })
+      .catch(() => { /* keep the procedural Earth fallback */ });
   }
 
   Renderer.prototype.resize = function () {
@@ -508,6 +510,27 @@
       }
     }
 
+    // RCS attitude-thruster puffs: a short cold-gas jet fires from the upper
+    // body whenever a rotation command is held.
+    if (l.rcs && !opts.frozen) {
+      const upX = Math.sin(l.angle), upY = Math.cos(l.angle);       // body "up"
+      const rightX = Math.cos(l.angle), rightY = -Math.sin(l.angle); // body "right"
+      const side = l.rcs > 0 ? -1 : 1;  // jet fires opposite the turn direction
+      for (let i = 0; i < 2; i++) {
+        const up = 7 + Math.random() * 2;   // m above the feet (near the top)
+        const out = 3 + Math.random() * 2;  // m to the side
+        const spd = 16 + Math.random() * 14;
+        this.rcsPuffs.push({
+          x: l.x + upX * up + rightX * side * out,
+          y: l.y + upY * up + rightY * side * out,
+          vx: rightX * side * spd + l.vx * 0.5,
+          vy: rightY * side * spd + l.vy * 0.5,
+          age: 0, max: 0.28 + Math.random() * 0.22,
+          r: 1 + Math.random() * 1.4,
+        });
+      }
+    }
+
     const step = (arr) => {
       for (let i = arr.length - 1; i >= 0; i--) {
         const p = arr[i];
@@ -531,6 +554,15 @@
       ctx.fillStyle = a > 0.5 ? "#dff0ff" : "#7fb0ff";
       ctx.beginPath();
       ctx.arc(this._sx(p.x), this._sy(p.y), p.r * this.cam.scale * 1.2, 0, 6.2831);
+      ctx.fill();
+    }
+    // RCS cold-gas puffs — faint white wisps.
+    for (const p of this.rcsPuffs) {
+      const a = 1 - p.age / p.max;
+      ctx.globalAlpha = a * 0.55;
+      ctx.fillStyle = "#eaf4ff";
+      ctx.beginPath();
+      ctx.arc(this._sx(p.x), this._sy(p.y), p.r * this.cam.scale * 1.1, 0, 6.2831);
       ctx.fill();
     }
     ctx.restore();

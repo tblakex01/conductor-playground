@@ -16,6 +16,7 @@
     this.vy = state.vy;           // m/s (up +)
     this.angle = state.angle || 0;// tilt from vertical (rad, right-lean +)
     this.angVel = 0;              // rad/s
+    this.rcs = 0;                 // last RCS rotate command (-1..1)
     this.fuel0 = state.fuel;      // initial propellant (kg)
     this.fuel = state.fuel;       // current propellant (kg)
     this.throttle = 0;            // commanded throttle 0..1
@@ -62,6 +63,7 @@
 
     // --- Attitude (RCS) -----------------------------------------------------
     const rot = input.rotate || 0;
+    this.rcs = rot;                       // last RCS command (for puff FX)
     this.angVel += rot * V.rcsTorque * dt;
     this.angVel -= this.angVel * V.rcsDamping * dt; // passive damping
     this.angle += this.angVel * dt;

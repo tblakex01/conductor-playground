@@ -97,15 +97,19 @@
     e.adiBall.style.transform = "rotate(" + (-tiltDeg).toFixed(1) + "deg)";
 
     // ---- Caution & warning ----
+    // Each light has a warn (amber) tier and a critical (red) tier so the
+    // crew sees a trend before a hard limit is breached.
     const lowFuel = fpct <= 15;
     const critFuel = fpct <= 6;
     const fastVel = descend > limits.safeVy || ax > limits.safeVx;
+    const warnVel = descend > limits.perfectVy || ax > limits.perfectVx;
     const badTilt = Math.abs(tiltDeg) > limits.maxTilt;
+    const warnTilt = Math.abs(tiltDeg) > limits.maxTilt * 0.55;
     const prox = alt < 90 && (descend > limits.safeVy * 0.8 || ax > limits.safeVx * 0.8);
 
     toggle(e.cwFuel, lowFuel, critFuel);
-    toggle(e.cwVel, fastVel, fastVel);
-    toggle(e.cwTilt, badTilt, badTilt);
+    toggle(e.cwVel, warnVel, fastVel);
+    toggle(e.cwTilt, warnTilt, badTilt);
     toggle(e.cwProx, prox, false);
 
     const master = critFuel || (alt < 200 && (fastVel || badTilt));
