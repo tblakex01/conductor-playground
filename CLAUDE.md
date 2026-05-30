@@ -3,22 +3,13 @@
 This repo bundles gstack at `.claude/skills/gstack/`. Don't install gstack
 globally for this project — everything resolves from the working tree.
 
-**Before doing ANY work, verify gstack is present and built:**
+If gstack ever isn't built (or wasn't checked out), build it with:
 
 ```bash
-test -x .claude/skills/gstack/browse/dist/browse && echo "GSTACK_OK" || echo "GSTACK_MISSING"
+./.claude/skills/gstack/setup
 ```
 
-If GSTACK_MISSING: STOP. Do not proceed. Tell the user:
-
-> gstack is vendored in this repo at `.claude/skills/gstack/` but isn't
-> built (or wasn't checked out). Run:
-> ```bash
-> ./.claude/skills/gstack/setup
-> ```
-> Requirements: bun (and Node.js on Windows).
-
-Do not skip skills, ignore gstack errors, or work around missing gstack.
+Requirements: bun (and Node.js on Windows).
 
 **Path conventions for this repo:**
 
