@@ -88,6 +88,8 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
+.topbar__right { display: flex; align-items: center; gap: 10px; }
+
 .phase-pill {
   font-family: var(--display);
   font-weight: 700;
@@ -99,6 +101,40 @@ html, body {
   color: var(--cyan);
   background: var(--panel);
 }
+
+/* HUD toggle cluster (sound / predictor / graph / trail) */
+.hud__toggles { display: flex; gap: 6px; pointer-events: auto; }
+.toggle {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  font-size: 0.62em;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-line);
+  background: var(--panel);
+  color: var(--cyan);
+  cursor: pointer;
+  transition: opacity 0.2s, color 0.2s, border-color 0.2s, background 0.2s;
+}
+.toggle:hover { background: rgba(79, 210, 255, 0.12); }
+.toggle.is-off {
+  color: var(--ink-dim);
+  border-color: rgba(127, 155, 179, 0.25);
+  opacity: 0.5;
+}
+
+/* Telemetry strip chart */
+.telemetry {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: min(34vw, 264px);
+  height: 122px;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+}
+.telemetry.is-hidden { display: none; }
 
 /* Side panels */
 .panel {
@@ -300,6 +336,10 @@ html, body {
 }
 .touch__btn:active { background: rgba(79, 210, 255, 0.25); }
 body.is-touch .touch { display: flex; }
+/* The graph shares the bottom-left corner with the touch pad — hide it on
+   touch devices and on narrow screens to avoid clutter. */
+body.is-touch .telemetry { display: none; }
+@media (max-width: 760px) { .telemetry { display: none; } }
 
 /* ============================================================
    Screens (start / end / pause)
@@ -488,6 +528,29 @@ kbd {
   margin-bottom: 22px;
 }
 .score .score__num { color: var(--cyan); text-shadow: 0 0 20px rgba(79, 210, 255, 0.4); }
+
+/* Personal-best line (briefing) + new-record banner (results) */
+.best-line {
+  color: var(--ink-dim);
+  letter-spacing: 0.08em;
+  font-size: 0.82em;
+  margin: -8px 0 18px;
+  font-variant-numeric: tabular-nums;
+}
+.record-banner {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-size: 0.84em;
+  color: var(--amber);
+  margin: -2px 0 14px;
+}
+.record-banner.is-new {
+  color: var(--green);
+  text-shadow: 0 0 16px rgba(70, 240, 138, 0.5);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: 0.55; } }
 
 .screen__badge--good { color: var(--green); border-color: rgba(70, 240, 138, 0.4); }
 .screen__badge--bad { color: var(--red); border-color: rgba(255, 77, 94, 0.4); }

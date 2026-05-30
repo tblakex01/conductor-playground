@@ -6,13 +6,16 @@
 (function (global) {
   "use strict";
 
-  const { U, CONFIG, Terrain, Lander, Renderer, HUD, Input } = global.ARTEMIS;
+  const { U, CONFIG, Terrain, Lander, Renderer, HUD, Input, AudioFX, Telemetry, Store } = global.ARTEMIS;
   const V = CONFIG.VEHICLE;
 
   function Game(canvas) {
     this.renderer = new Renderer(canvas);
     this.hud = new HUD();
     this.input = new Input();
+    this.audio = new AudioFX();
+    this.telemetry = new Telemetry(document.getElementById("telemetry"));
+    this.settings = Store.getSettings();   // live reference (persisted)
 
     this.state = "menu";          // menu | flying | paused | ended
     this.diffKey = "commander";
@@ -23,6 +26,10 @@
     this.phaseLabel = "PRE-LAUNCH";
     this.cmdThrottle = 0;
     this.shake = 0;
+    this.path = [];                // flight-path breadcrumb trail
+    this.predict = null;           // predicted touchdown {x,y,descend,...}
+    this._pathTimer = 0;
+    this._gphTimer = 0;
     this._acc = 0;
     this._last = 0;
 
@@ -78,6 +85,11 @@
     this.shake = 0;
     this.result = null;
     this.phaseLabel = "BRAKING";
+    this.path = [];
+    this.predict = null;
+    this._pathTimer = 0;
+    this._gphTimer = 0;
+    this.telemetry.reset();
 
     this.renderer.setScene(this.terrain, this.lander);
     this.hud.clearAlarms();
@@ -132,6 +144,11 @@
         if (this.state !== "flying") break;
       }
       this.hud.update(this);
+      this._postFrame(dt);
+    } else {
+      // Silence the engine and master alarm whenever we're not flying.
+      this.audio.setEngine(0);
+      this.audio.setAlarm(false);
     }
 
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 3);
@@ -139,9 +156,79 @@
     if (this.terrain && this.lander) {
       // Shake is applied inside render(), after the background is cleared,
       // so clearRect is never offset (no uncleared bands at the edges).
-      this.renderer.render(dt, { frozen, shake: this.shake });
+      this.renderer.render(dt, {
+        frozen: frozen,
+        shake: this.shake,
+        predict: this.state === "flying" ? this.predict : null,
+        path: this.settings.trail ? this.path : null,
+        review: this.state === "ended",
+      });
+      if (this.settings.graph && this.limits) this.telemetry.draw(this.limits);
     }
     requestAnimationFrame(this._loop);
+  };
+
+  // ---- Per-frame work that isn't fixed-step physics ------------------------
+  // Drives the engine/alarm audio, records the flight path + telemetry
+  // samples, and recomputes the predicted touchdown.
+  Game.prototype._postFrame = function (dt) {
+    const l = this.lander;
+
+    this.audio.setEngine(l.effThrottle);
+    this.audio.setAlarm(this.hud.masterOn);
+    if (this.input.rotate() !== 0) this.audio.rcs();
+
+    this._pathTimer += dt;
+    if (this._pathTimer >= 0.12) {
+      this._pathTimer = 0;
+      this.path.push({ x: l.x, y: l.y, s: Math.hypot(l.vx, l.vy) });
+      if (this.path.length > 600) this.path.shift();
+    }
+
+    this._gphTimer += dt;
+    if (this._gphTimer >= 0.1) {
+      this._gphTimer = 0;
+      const gh = this.terrain.heightAt(l.x);
+      this.telemetry.sample(Math.max(0, l.y - gh), l.vy);
+    }
+
+    this.predict = this.settings.predict ? this._computePrediction() : null;
+  };
+
+  // Forward-integrate the current state (throttle/attitude held constant,
+  // mass frozen) to estimate where and how hard the lander will touch down.
+  // Returns null when no impact lies within the horizon (e.g. climbing).
+  Game.prototype._computePrediction = function () {
+    const l = this.lander;
+    if (l.landed) return null;
+    const m = l.mass();
+    const ax0 = (l.thrust / m) * Math.sin(l.angle);
+    const ay0 = (l.thrust / m) * Math.cos(l.angle) - CONFIG.MOON_GRAVITY;
+
+    let x = l.x, y = l.y, vx = l.vx, vy = l.vy;
+    const dt = 0.06;
+    const pts = [];
+    // Horizon (~48 s) comfortably covers a full ballistic descent from the
+    // 1100 m start; a thrusting-upward state simply never impacts -> null.
+    for (let i = 0; i < 800; i++) {
+      vx += ax0 * dt; vy += ay0 * dt;
+      x += vx * dt; y += vy * dt;
+      if (x < 30 || x > CONFIG.WORLD.width - 30) break;
+      if (i % 8 === 0) pts.push({ x: x, y: y });
+      const gh = this.terrain.heightAt(x);
+      if (y <= gh) {
+        const lim = this.limits;
+        const descend = -vy;
+        const onPad = this.terrain.isOnPad(x);
+        const slope = Math.abs(U.deg(this.terrain.slopeAt(x)));
+        const safe = descend <= lim.safeVy && Math.abs(vx) <= lim.safeVx &&
+          !(!onPad && slope > 12);
+        const good = onPad && descend <= lim.perfectVy && Math.abs(vx) <= lim.perfectVx;
+        pts.push({ x: x, y: gh });
+        return { x: x, y: gh, descend: descend, vx: vx, onPad: onPad, safe: safe, good: good, points: pts };
+      }
+    }
+    return null;
   };
 
   // ---- Physics step + collision --------------------------------------------
@@ -198,6 +285,7 @@
     if (crash) {
       this.shake = 1;
       this._spawnDebris();
+      this.audio.crash();
       const reasons = [];
       if (descend > lim.safeVy) reasons.push("excessive descent rate");
       if (ax > lim.safeVx) reasons.push("excessive lateral velocity");
@@ -235,6 +323,9 @@
       if (perfect) score += 1200;
       score = Math.round(score * diffMult);
 
+      this.audio.touchdown(softness);
+      if (perfect) this.audio.chime();
+
       let grade, title, message;
       if (perfect) {
         grade = "★★★ PRECISION LANDING";
@@ -261,6 +352,9 @@
         score,
       };
     }
+
+    this.predict = null;
+    result.record = Store.recordResult(this.diffKey, result, descend);
 
     this.result = result;
     this.phaseLabel = result.success ? "TOUCHDOWN" : "FAILURE";
