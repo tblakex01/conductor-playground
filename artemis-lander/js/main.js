@@ -51,6 +51,7 @@
     // Keyboard shortcuts for the toggles (work on every screen).
     const TOGGLE_KEYS = { KeyM: "sound", KeyG: "predict", KeyB: "graph", KeyT: "trail" };
     window.addEventListener("keydown", (ev) => {
+      if (ev.repeat) return;            // ignore auto-repeat while a key is held
       const key = TOGGLE_KEYS[ev.code];
       if (!key) return;
       game.audio.unlock();
