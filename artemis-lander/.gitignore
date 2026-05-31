@@ -1,0 +1,4 @@
+# Node / test tooling
+node_modules/
+coverage/
+.nvmrc
