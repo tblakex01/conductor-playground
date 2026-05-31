@@ -258,7 +258,8 @@ globalThis.document = documentObj;
 globalThis.requestAnimationFrame = () => 0;   // game loop is driven manually in tests
 globalThis.cancelAnimationFrame = () => {};
 globalThis.Image = ImageMock;
-globalThis.navigator = globalThis.navigator || { userAgent: "node-test" };
+// Node 22 exposes `navigator` as a read-only global; nothing in the app uses
+// it, so we leave it untouched rather than reassign (which would throw).
 
 // ---- Load the application modules in dependency order ---------------------
 const JS = path.resolve(import.meta.dirname, "..", "js");

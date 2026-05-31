@@ -1,6 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ARTEMIS } from "./harness.js";
+
+// On some Node versions `globalThis.navigator` is a getter-only accessor, which
+// makes the harness's `globalThis.navigator = ...` assignment throw at import
+// time. Redefine it as a writable data property BEFORE the harness loads, then
+// pull the harness in dynamically (static imports are hoisted, so a top-level
+// `import` would run before this guard).
+try {
+  Object.defineProperty(globalThis, "navigator", {
+    value: globalThis.navigator,
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  });
+} catch { /* already writable — nothing to do */ }
+
+const { ARTEMIS } = await import("./harness.js");
 
 const CONFIG = ARTEMIS.CONFIG;
 

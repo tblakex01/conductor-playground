@@ -1,6 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ARTEMIS } from "./harness.js";
+
+// On some Node versions `globalThis.navigator` is a getter-only accessor, which
+// makes the harness's `globalThis.navigator = ...` assignment throw at import
+// time. Redefine it as a writable data property BEFORE the harness loads, then
+// pull the harness in dynamically (static imports are hoisted, so a top-level
+// `import` would run before this guard).
+try {
+  Object.defineProperty(globalThis, "navigator", {
+    value: globalThis.navigator,
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  });
+} catch { /* already writable — nothing to do */ }
+
+const { ARTEMIS } = await import("./harness.js");
 
 const Terrain = ARTEMIS.Terrain;
 
@@ -172,4 +187,23 @@ test("higher roughness yields more craters", () => {
   const high = makeTerrain({ roughness: 1.55, seed: 9 });
   // craterCount = round(10 + roughness*8); high should generate >= low candidates.
   assert.ok(high.craters.length >= low.craters.length);
+});
+
+// ---- pad-ramp out-of-bounds clamp ---------------------------------------
+test("pad at x=0: ramp clamps below index 0 without throwing", () => {
+  // padCenterX near the left edge forces padI - rampI < 0, exercising the
+  // `if (i < 0 || i >= n) continue;` guard in the ramp loop.
+  const t = makeTerrain({ padCenterX: 0 });
+  assert.ok(t.points.length > 0);
+  assert.ok(Number.isFinite(t.padHeight));
+  assert.equal(t.isOnPad(0), true);
+});
+
+test("pad at right edge: ramp clamps beyond index n without throwing", () => {
+  // padCenterX at the far edge forces padI + rampI >= n, exercising the
+  // upper bound of the same guard.
+  const t = makeTerrain({ padCenterX: 4200 });
+  assert.ok(t.points.length > 0);
+  assert.ok(Number.isFinite(t.padHeight));
+  assert.equal(t.isOnPad(4200), true);
 });
