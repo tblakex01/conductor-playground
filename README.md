@@ -119,8 +119,8 @@ It's a static site — there's nothing to install. Either open the file directly
 
 ```bash
 # Clone the repo
-git clone https://github.com/tblakex01/conductor-playground.git
-cd conductor-playground/artemis-lander
+git clone https://github.com/tblakex01/artemis-moon-lander.git
+cd artemis-moon-lander/artemis-lander
 
 # Option A — just open it
 open index.html        # macOS    (use "start" on Windows, "xdg-open" on Linux)
