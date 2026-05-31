@@ -32,6 +32,7 @@
       cwTilt: $("cw-tilt"),
       cwProx: $("cw-prox"),
     };
+    this.masterOn = false;   // latest master-alarm state (read by audio)
   }
 
   // Resolve the enclosing .readout__value container (robust to DOM nesting).
@@ -114,6 +115,7 @@
 
     const master = critFuel || (alt < 200 && (fastVel || badTilt));
     e.cwMaster.classList.toggle("is-on", master);
+    this.masterOn = master;
   };
 
   function toggle(el, on, crit) {
@@ -127,6 +129,7 @@
       x.classList.remove("is-on", "is-crit");
     });
     e.cwMaster.classList.remove("is-on");
+    this.masterOn = false;
   };
 
   global.ARTEMIS.HUD = HUD;

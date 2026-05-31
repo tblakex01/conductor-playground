@@ -121,6 +121,8 @@
     this._drawEarth();
     this._drawTerrain();
     this._drawPad();
+    this._drawTrail(opts);
+    this._drawPredictor(opts);
     this._updateParticles(dt, opts);
     this._drawParticles();
     this._drawLander();
@@ -613,6 +615,90 @@
     ctx.lineTo(padSX, sy);
     ctx.stroke();
     ctx.setLineDash([]);
+  };
+
+  // ---- Flight-path trail ----------------------------------------------------
+  // During flight: a short fading breadcrumb behind the lander.
+  // On the results screen (review): the full path, segments coloured by speed.
+  Renderer.prototype._drawTrail = function (opts) {
+    const path = opts.path;
+    if (!path || path.length < 2) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    if (opts.review) {
+      ctx.lineWidth = 2;
+      for (let i = 1; i < path.length; i++) {
+        const a = path[i - 1], b = path[i];
+        const spd = b.s;
+        ctx.strokeStyle = spd > 20 ? "#ff4d5e" : spd > 8 ? "#ffb648" : "#46f08a";
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.moveTo(this._sx(a.x), this._sy(a.y));
+        ctx.lineTo(this._sx(b.x), this._sy(b.y));
+        ctx.stroke();
+      }
+    } else {
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = "#78c8ff";
+      const N = Math.min(path.length, 60);
+      const start = path.length - N;
+      for (let i = start + 1; i < path.length; i++) {
+        const a = path[i - 1], b = path[i];
+        ctx.globalAlpha = 0.05 + ((i - start) / N) * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(this._sx(a.x), this._sy(a.y));
+        ctx.lineTo(this._sx(b.x), this._sy(b.y));
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  };
+
+  // ---- Predicted touchdown indicator ---------------------------------------
+  Renderer.prototype._drawPredictor = function (opts) {
+    const p = opts.predict;
+    if (!p) return;
+    const ctx = this.ctx;
+    const col = p.good ? "#46f08a" : p.safe ? "#ffb648" : "#ff4d5e";
+
+    // Dotted predicted trajectory arc.
+    if (p.points && p.points.length > 1) {
+      ctx.save();
+      ctx.setLineDash([3, 4]);
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = p.safe ? "rgba(70,240,138,0.45)" : "rgba(255,77,94,0.5)";
+      ctx.beginPath();
+      for (let i = 0; i < p.points.length; i++) {
+        const X = this._sx(p.points[i].x), Y = this._sy(p.points[i].y);
+        if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Impact marker: ringed crosshair on the surface.
+    const mx = this._sx(p.x), my = this._sy(p.y);
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.fillStyle = col;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(mx, my, 7, 0, 6.2831);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mx - 12, my); ctx.lineTo(mx - 3, my);
+    ctx.moveTo(mx + 3, my); ctx.lineTo(mx + 12, my);
+    ctx.stroke();
+    ctx.font = "11px 'Share Tech Mono', ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.globalAlpha = 0.95;
+    ctx.fillText(p.descend.toFixed(1) + " m/s", mx, my - 12);
+    ctx.restore();
+    ctx.globalAlpha = 1;
   };
 
   global.ARTEMIS.Renderer = Renderer;

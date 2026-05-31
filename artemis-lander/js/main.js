@@ -4,7 +4,7 @@
 (function (global) {
   "use strict";
 
-  const { Game } = global.ARTEMIS;
+  const { Game, Store } = global.ARTEMIS;
 
   document.addEventListener("DOMContentLoaded", () => {
     const canvas = document.getElementById("scene");
@@ -16,8 +16,57 @@
     const screenEnd = $("screen-end");
     const screenPause = $("screen-pause");
     const hud = $("hud");
+    const telCanvas = $("telemetry");
+    const bestLine = $("best-line");
 
     let diff = "commander";
+
+    // ---- HUD toggles (sound / predictor / graph / trail), persisted ----
+    const settings = game.settings;          // live, Store-backed reference
+    const toggleBtns = {};
+
+    const reflect = (key) => {
+      const val = settings[key];
+      const btn = toggleBtns[key];
+      if (btn) {
+        btn.classList.toggle("is-off", !val);
+        btn.setAttribute("aria-pressed", String(!!val));
+      }
+      if (key === "sound") game.audio.setMuted(!val);
+      if (key === "graph" && telCanvas) telCanvas.classList.toggle("is-hidden", !val);
+    };
+    const setSetting = (key, val) => { Store.setSetting(key, val); reflect(key); };
+
+    document.querySelectorAll("#hud-toggles .toggle").forEach((btn) => {
+      const key = btn.getAttribute("data-toggle");
+      toggleBtns[key] = btn;
+      btn.addEventListener("click", () => {
+        game.audio.unlock();
+        game.audio.click();
+        setSetting(key, !settings[key]);
+      });
+    });
+    ["sound", "predict", "graph", "trail"].forEach(reflect);
+
+    // Keyboard shortcuts for the toggles (work on every screen).
+    const TOGGLE_KEYS = { KeyM: "sound", KeyG: "predict", KeyB: "graph", KeyT: "trail" };
+    window.addEventListener("keydown", (ev) => {
+      if (ev.repeat) return;            // ignore auto-repeat while a key is held
+      const key = TOGGLE_KEYS[ev.code];
+      if (!key) return;
+      game.audio.unlock();
+      setSetting(key, !settings[key]);
+    });
+
+    // ---- Personal best (briefing screen) ----
+    const updateBestLine = () => {
+      if (!bestLine) return;
+      const r = Store.getRecord(diff);
+      bestLine.textContent = r.bestScore
+        ? "PERSONAL BEST · " + r.bestScore.toLocaleString() + "   ·   " + r.landings + "/" + r.missions + " LANDED"
+        : "NO MISSIONS LOGGED — FLY YOUR FIRST DESCENT";
+    };
+    updateBestLine();
 
     // ---- Difficulty selection ----
     $("diff-opts").querySelectorAll(".diff__opt").forEach((btn) => {
@@ -25,6 +74,9 @@
         $("diff-opts").querySelectorAll(".diff__opt").forEach((b) => b.classList.remove("is-active"));
         btn.classList.add("is-active");
         diff = btn.getAttribute("data-diff");
+        game.audio.unlock();
+        game.audio.click();
+        updateBestLine();
       });
     });
 
@@ -37,7 +89,11 @@
     });
 
     // ---- Launch ----
-    const launch = () => game.start(diff);
+    const launch = () => {
+      game.audio.unlock();      // first user gesture — start the audio context
+      game.audio.click();
+      game.start(diff);
+    };
     $("btn-launch").addEventListener("click", launch);
     $("btn-again").addEventListener("click", launch);
 
@@ -45,13 +101,15 @@
     game.on("onPause", (paused) => {
       screenPause.classList.toggle("screen--hidden", !paused);
     });
-    $("btn-resume").addEventListener("click", () => game.setPaused(false));
+    $("btn-resume").addEventListener("click", () => { game.audio.click(); game.setPaused(false); });
     $("btn-abort").addEventListener("click", () => {
+      game.audio.click();
       game.setPaused(false);
       game.state = "menu";
       hud.classList.add("is-hidden");
       screenPause.classList.add("screen--hidden");
       screenStart.classList.remove("screen--hidden");
+      updateBestLine();
     });
 
     // ---- End of mission ----
@@ -65,6 +123,23 @@
       title.className = "screen__title screen__title--sm " + (result.success ? "screen__title--good" : "screen__title--bad");
 
       $("end-msg").textContent = result.message;
+
+      // New-record banner / personal-best context.
+      const recEl = $("end-record");
+      const rec = result.record || {};
+      if (rec.newRecord) {
+        recEl.textContent = "★ NEW PERSONAL BEST ★";
+        recEl.className = "record-banner is-new";
+        recEl.style.display = "";
+      } else if (result.success && rec.prevBest) {
+        recEl.textContent = "PERSONAL BEST · " + rec.prevBest.toLocaleString();
+        recEl.className = "record-banner";
+        recEl.style.display = "";
+      } else {
+        recEl.textContent = "";
+        recEl.style.display = "none";
+      }
+      updateBestLine();
 
       // Build the stats grid with DOM nodes (no innerHTML) to stay XSS-safe.
       const statsEl = $("end-stats");
@@ -105,7 +180,10 @@
     let rT;
     window.addEventListener("resize", () => {
       clearTimeout(rT);
-      rT = setTimeout(() => game.renderer.resize(), 120);
+      rT = setTimeout(() => {
+        game.renderer.resize();
+        game.telemetry.resize();
+      }, 120);
     });
   });
 })(window);
