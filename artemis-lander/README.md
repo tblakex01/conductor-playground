@@ -76,6 +76,29 @@ python3 -m http.server 8000
 # then visit http://localhost:8000
 ```
 
+## Tests
+
+The simulator ships with a full unit/integration suite (280 tests) built on
+**Node's built-in test runner and built-in coverage** — no dependencies, no
+`npm install`, no build step. A small zero-dependency harness
+(`test/harness.js`) shims a browser environment (DOM, Canvas 2D, Web Audio,
+`localStorage`, `Image`, timers) so the vanilla `(function (global) {…})(window)`
+modules load and run under Node.
+
+```bash
+cd artemis-lander
+npm test            # run all tests with coverage; fails under the thresholds
+npm run test:plain  # run the tests without coverage
+npm run coverage    # print the full coverage table
+```
+
+`npm test` enforces minimum coverage (80% lines, 80% functions, 70% branches)
+and is what CI runs. Current coverage is **~99% lines / 100% functions** across
+every module. The same command runs in GitHub Actions
+(`.github/workflows/ci.yml`) on every push and pull request — it just needs
+Node 22, nothing else.
+
+
 ## How to land
 
 1. **Kill your descent rate early.** Gravity is gentle but relentless and there
@@ -92,21 +115,23 @@ python3 -m http.server 8000
 ```
 artemis-lander/
 ├── index.html        # markup + HUD/screens
+├── package.json      # test scripts (Node built-in runner + coverage)
 ├── css/styles.css    # mission-control styling
-└── js/
-    ├── config.js     # physical constants, vehicle, difficulty profiles
-    ├── utils.js      # math helpers, seeded RNG, image loader
-    ├── storage.js    # localStorage: HUD prefs + per-difficulty records
-    ├── audio.js      # Web Audio procedural sound effects
-    ├── terrain.js    # procedural lunar terrain + queries
-    ├── physics.js    # rigid-body lander integration
-    ├── renderer.js   # canvas: sky, Earth, terrain, lander, particles,
-    │                 #   flight-path trail, predicted-touchdown marker
-    ├── telemetry.js  # real-time altitude / descent-rate strip chart
-    ├── hud.js        # telemetry + caution/warning binding
-    ├── input.js      # keyboard + touch
-    ├── game.js       # loop, collision, landing eval, scoring, prediction
-    └── main.js       # bootstrap / screen wiring / HUD toggles
+├── js/
+│   ├── config.js     # physical constants, vehicle, difficulty profiles
+│   ├── utils.js      # math helpers, seeded RNG, image loader
+│   ├── storage.js    # localStorage: HUD prefs + per-difficulty records
+│   ├── audio.js      # Web Audio procedural sound effects
+│   ├── terrain.js    # procedural lunar terrain + queries
+│   ├── physics.js    # rigid-body lander integration
+│   ├── renderer.js   # canvas: sky, Earth, terrain, lander, particles,
+│   │                 #   flight-path trail, predicted-touchdown marker
+│   ├── telemetry.js  # real-time altitude / descent-rate strip chart
+│   ├── hud.js        # telemetry + caution/warning binding
+│   ├── input.js      # keyboard + touch
+│   ├── game.js       # loop, collision, landing eval, scoring, prediction
+│   └── main.js       # bootstrap / screen wiring / HUD toggles
+└── test/             # Node test suite (harness.js + *.test.js)
 ```
 
 ## Credits

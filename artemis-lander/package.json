@@ -1,0 +1,13 @@
+{
+  "name": "artemis-lander",
+  "version": "1.0.0",
+  "description": "Artemis Lunar Descent Simulator — vanilla JS Moon-landing game with a Node built-in test suite.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --experimental-test-coverage --test-coverage-include='js/**/*.js' --test-coverage-exclude='test/**' --test-coverage-lines=80 --test-coverage-functions=80 --test-coverage-branches=70 test/",
+    "test:plain": "node --test test/",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include='js/**/*.js' --test-coverage-exclude='test/**' test/"
+  },
+  "license": "MIT"
+}
