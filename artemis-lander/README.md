@@ -78,7 +78,7 @@ python3 -m http.server 8000
 
 ## Tests
 
-The simulator ships with a full unit/integration suite (280 tests) built on
+The simulator ships with a full unit/integration suite (284 tests) built on
 **Node's built-in test runner and built-in coverage** — no dependencies, no
 `npm install`, no build step. A small zero-dependency harness
 (`test/harness.js`) shims a browser environment (DOM, Canvas 2D, Web Audio,

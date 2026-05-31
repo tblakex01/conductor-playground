@@ -176,7 +176,7 @@ test("formatMET: 125.5 -> 02:05.5", () => {
   assert.equal(U.formatMET(125.5), "02:05.5");
 });
 
-test("formatMET: 59.95 rounds to 01:00.0 (seconds rollover edge)", () => {
+test("formatMET: 59.95 -> 00:60.0 (no seconds rollover; documents current behavior)", () => {
   // 59.95 within first minute: m=0, s=59.95 -> toFixed(1) = "60.0"
   // documents current behavior of the implementation.
   assert.equal(U.formatMET(59.95), "00:60.0");

@@ -1,10 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  ARTEMIS, dom, els, fireKey, fireWindow, fireDOMContentLoaded, resetStore,
+  ARTEMIS, dom, els, makeEl, fireKey, fireWindow, fireDOMContentLoaded, resetStore,
 } from "./harness.js";
 
-const { U } = ARTEMIS;
+// The harness's fake document omits createTextNode, which the real browser
+// document provides and main.js uses on the successful-landing path. Provide a
+// minimal text-node shim (a node with textContent) before bootstrapping so the
+// onEnd handler runs end-to-end. We do NOT touch js/ or the harness itself.
+if (typeof dom.createTextNode !== "function") {
+  dom.createTextNode = (txt) => {
+    const n = makeEl("#text");
+    n.textContent = String(txt);
+    return n;
+  };
+}
 
 // Bootstrap once: main.js registered a DOMContentLoaded handler at import.
 resetStore();
@@ -146,7 +156,6 @@ test("launch starts the mission and reveals the HUD", () => {
 // ---- pause flow -----------------------------------------------------------
 
 test("pause shows the pause screen; resume hides it", () => {
-  // Ensure we are flying.
   if (game.state !== "flying") { $("btn-launch").click(); }
   game.setPaused(true);
   assert.equal(game.state, "paused");
@@ -177,44 +186,59 @@ test("successful new-record landing populates the end screen", () => {
   landGame({ vy: -0.5, vx: 0, angle: 0 }); // precision -> success + new record
 
   assert.equal(game.state, "ended");
+  assert.equal(game.result.success, true);
+  assert.equal(game.result.record.newRecord, true);
+
+  // main.js populated the end screen synchronously.
   assert.ok($("end-title").textContent.length > 0);
   assert.ok($("end-badge").textContent.length > 0);
   assert.ok($("end-msg").textContent.length > 0);
   assert.ok($("end-stats").children.length > 0, "stat cells appended");
-  assert.ok($("end-score").textContent.length > 0 || $("end-score").children.length > 0);
+  assert.ok($("end-score").children.length > 0, "score span appended");
+  // Success styling on badge/title.
+  assert.ok($("end-badge").className.includes("screen__badge--good"));
+  assert.ok($("end-title").className.includes("screen__title--good"));
 
+  // New-record banner: text + is-new class + visible.
   const recEl = $("end-record");
   assert.match(recEl.textContent, /NEW PERSONAL BEST/);
   assert.ok(recEl.className.includes("is-new"));
-  // Badge reflects success styling.
-  assert.ok($("end-badge").className.includes("screen__badge--good"));
+  assert.notEqual(recEl.style.display, "none");
 });
 
 test("successful non-record landing shows the personal-best banner", () => {
-  // A landing that does NOT beat the current best (records already seeded by
-  // the previous test). Land softly but with less score -> not a new record.
+  // Records already seeded by the previous test. A lower-scoring (but still
+  // safe) landing is NOT a new record -> the prev-best banner shows.
   els.diffOpts[1].click(); // commander
   $("btn-launch").click();
-  // Burn most fuel and use a harder (still safe) descent to lower the score.
-  game.lander.fuel = 1;
+  game.lander.fuel = 1;    // drain fuel so the score can't beat the record
   landGame({ vy: -2.0, vx: 0, angle: 0 });
+
   assert.equal(game.state, "ended");
+  assert.equal(game.result.success, true);
   assert.equal(game.result.record.newRecord, false, "not a new record");
+
   const recEl = $("end-record");
-  // Not a new record -> the prev-best banner shows (visible).
   assert.notEqual(recEl.style.display, "none");
   assert.match(recEl.textContent, /PERSONAL BEST/);
+  assert.ok(!recEl.className.includes("is-new"));
 });
 
 test("crash hides the end-record banner and uses bad styling", () => {
   els.diffOpts[1].click();
   $("btn-launch").click();
   landGame({ vy: -50, vx: 0, angle: 0 }); // crash
+
   assert.equal(game.state, "ended");
   assert.equal(game.result.success, false);
+  assert.ok($("end-badge").className.includes("screen__badge--bad"));
+  assert.ok($("end-title").className.includes("screen__title--bad"));
+
   const recEl = $("end-record");
   assert.equal(recEl.style.display, "none"); // banner hidden on crash
-  // end-score should contain a "NO SCORE" span for a crash.
+  assert.equal(recEl.textContent, "");
+
+  // end-score contains a "NO SCORE" span on a crash.
   const hasNoScore = ($("end-score").children || []).some(
     (c) => c.textContent === "NO SCORE"
   );
@@ -224,7 +248,6 @@ test("crash hides the end-record banner and uses bad styling", () => {
 // ---- fly again ------------------------------------------------------------
 
 test("fly again restarts the mission", () => {
-  // From an ended state, btn-again launches a fresh mission.
   $("btn-again").click();
   assert.equal(game.state, "flying");
 });
