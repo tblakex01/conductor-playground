@@ -37,13 +37,18 @@
     },
 
     // Try a list of image URLs; resolve with the first that loads, else null.
+    // The image is only ever *drawn* to the canvas (never read back via
+    // getImageData/toDataURL), so we deliberately do NOT request CORS: NASA's
+    // image CDN does not send Access-Control-Allow-Origin, and forcing
+    // crossOrigin="anonymous" would make the browser reject those photos and
+    // silently fall back to the procedural Earth. Plain loads "taint" the
+    // canvas harmlessly and let the real imagery through.
     loadFirstImage(urls) {
       return new Promise((resolve) => {
         let i = 0;
         const tryNext = () => {
           if (i >= urls.length) return resolve(null);
           const img = new Image();
-          img.crossOrigin = "anonymous";
           img.onload = () => resolve(img);
           img.onerror = () => { i += 1; tryNext(); };
           img.src = urls[i];

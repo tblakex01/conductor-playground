@@ -54,10 +54,14 @@ bundlers, no `node_modules`. Just open the file and fly.
   terrain roughness, pad size, and touchdown limits.
 - 🌑 **Procedural lunar terrain** — a fractal height field with a guaranteed flat,
   beacon-lit landing pad, scattered craters, and hazardous off-pad slopes.
-- 🎞️ **Cinematic rendering** — auto-zooming camera, twinkling starfield, the Earth
-  rendered from NASA's public-domain *Blue Marble / Apollo 17* photograph (with a
-  procedural fallback), throttle-driven engine plume, RCS cold-gas puffs, regolith
-  dust on approach, and a debris-and-shake crash effect.
+- 🎞️ **Cinematic rendering** — an auto-zooming camera, a layered colour starfield
+  with a soft **Milky Way band**, the Earth rendered from NASA's public-domain
+  ***Blue Marble 2012*** photograph (bundled locally, with an atmospheric limb and
+  day/night terminator), **sun-lit lunar terrain** with regolith grain and
+  shadow-cast craters, a throttle-driven engine plume with **Mach shock diamonds**,
+  a plume **ground-interaction glow**, RCS cold-gas puffs, regolith dust on approach,
+  a debris-and-shake crash effect, and a cinematic vignette. Every surface is lit
+  from a single shared sun direction for a coherent, photographic look.
 - 🏆 **Scoring & grading** — graded on softness, accuracy, attitude, and remaining
   fuel, multiplied by difficulty. Land dead-centre and feather-soft for a
   *Precision Landing*.
@@ -74,7 +78,7 @@ bundlers, no `node_modules`. Just open the file and fly.
 | 🧠 **Logic & physics** | Vanilla **JavaScript (ES2015+)** | Hand-rolled rigid-body integrator, terrain generator, and game loop |
 | 💅 **Styling** | **CSS3** | Custom properties, gradients, `backdrop-filter`, keyframe animations for the mission-control UI |
 | 🔤 **Typography** | [Google Fonts](https://fonts.google.com/) | *Orbitron* (display) + *Share Tech Mono* (telemetry) |
-| 🛰️ **Imagery** | **NASA** public-domain assets | *Blue Marble / Apollo 17* Earth, with a procedural fallback |
+| 🛰️ **Imagery** | **NASA** public-domain assets | *Blue Marble 2012* (Suomi-NPP / VIIRS) Earth, bundled locally; Apollo 17 + the [NASA image library](https://images.nasa.gov/) as remote fallbacks; procedural Earth if all else fails |
 | 🧰 **Tooling (dev)** | `python3 -m http.server`, [gstack](https://github.com/) headless browser | Local serving + automated QA / screenshots |
 
 > **Zero runtime dependencies.** No npm install, no build step, no transpilation —
@@ -125,7 +129,7 @@ cd artemis-moon-lander/artemis-lander
 # Option A — just open it
 open index.html        # macOS    (use "start" on Windows, "xdg-open" on Linux)
 
-# Option B — serve it (recommended, so NASA imagery loads without CORS issues)
+# Option B — serve it (recommended for a clean reload workflow)
 python3 -m http.server 8000
 # then visit http://localhost:8000
 ```
@@ -160,7 +164,8 @@ artemis-lander/
 ├── css/
 │   └── styles.css      # Mission-control styling
 ├── assets/
-│   └── preview.png     # Gameplay preview
+│   ├── preview.png            # Gameplay preview
+│   └── earth-blue-marble.jpg  # NASA Blue Marble 2012 (public domain)
 └── js/
     ├── config.js       # Physical constants, vehicle spec, difficulty profiles
     ├── utils.js        # Math helpers, seeded RNG, image loader
@@ -185,8 +190,9 @@ zero-dependency, single-namespace style consistent with the existing modules.
 
 ## 🌌 Credits
 
-- 🌍 **Earth imagery** — [NASA](https://www.nasa.gov/) (public domain): *The Blue
-  Marble*, Apollo 17.
+- 🌍 **Earth imagery** — [NASA](https://www.nasa.gov/) (public domain): *Blue Marble
+  2012*, a true-colour Suomi-NPP / VIIRS composite (bundled), with *The Blue Marble*
+  (Apollo 17) and the [NASA image library](https://images.nasa.gov/) as fallbacks.
 - 🚀 Inspired by NASA's **Artemis** program and the classic *Lunar Lander* arcade game.
 
 > Built as a self-contained physics & rendering demo. Not affiliated with NASA.

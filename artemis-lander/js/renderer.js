@@ -1,13 +1,21 @@
 /* ============================================================
    ARTEMIS · Canvas renderer
-   Starfield, Earth (NASA imagery w/ fallback), lunar terrain,
-   vector lander with throttle-driven exhaust, RCS puffs, and
-   regolith dust. Auto-zooming camera follows the descent.
+   Layered starfield + Milky Way, NASA "Blue Marble" Earth with an
+   atmosphere limb, sun-lit lunar terrain with regolith grain and
+   shadowed craters, a beacon-lit landing pad, a rim-lit vector
+   lander with a throttle-driven plume (shock diamonds), regolith
+   dust, and a cinematic vignette. Auto-zooming camera follows the
+   descent. All lighting keys off a single sun direction (upper-left)
+   for a coherent, photographic look.
    ============================================================ */
 (function (global) {
   "use strict";
 
   const { U, CONFIG } = global.ARTEMIS;
+
+  // Single key light shared by every surface, so highlights and shadows agree.
+  // World space (y is up): the sun sits high and to the upper-left.
+  const SUN = { x: -0.46, y: 0.89 };       // unit-ish direction *towards* the sun
 
   function Renderer(canvas) {
     this.canvas = canvas;
@@ -20,9 +28,12 @@
     this.camTarget = { x: 0, y: 0, scale: 1 };
 
     this.stars = [];
-    this.exhaust = [];   // engine plume particles
-    this.dust = [];      // regolith kicked up near surface
+    this.bandStars = [];  // dimmer Milky Way band
+    this.galaxy = [];     // soft nebula clouds
+    this.exhaust = [];    // engine plume particles
+    this.dust = [];       // regolith kicked up near surface
     this.rcsPuffs = [];
+    this.specks = [];      // regolith surface grain (per-terrain)
     this.earthImg = null;
 
     this.terrain = null;
@@ -48,14 +59,54 @@
 
   Renderer.prototype._makeStars = function () {
     const rng = U.makeRng(1337);
+    // Cool-to-warm star colour palette (mostly blue-white, a few amber).
+    const palette = [
+      "#eaf2ff", "#dce8ff", "#cfe0ff", "#c2d4ff",
+      "#ffffff", "#fff3df", "#ffe6c4", "#bcd0ff",
+    ];
+    const pick = () => palette[Math.floor(rng() * palette.length)];
+
     this.stars = [];
-    for (let i = 0; i < 320; i++) {
+    for (let i = 0; i < 360; i++) {
       this.stars.push({
         x: rng() * 2600 - 300,
         y: rng() * 1400 - 200,
         r: rng() * 1.3 + 0.2,
         a: rng() * 0.7 + 0.2,
         tw: rng() * 6.28,
+        c: pick(),
+        glow: rng() < 0.06,          // a handful of bright "hero" stars
+      });
+    }
+
+    // Milky Way band: a soft diagonal swath of faint stars, stored in
+    // normalised [0,1] viewport space so it survives resizes.
+    this.bandStars = [];
+    const a0 = { u: -0.1, v: 0.18 }, a1 = { u: 1.1, v: 0.66 };
+    for (let i = 0; i < 540; i++) {
+      const t = rng();
+      // Gaussian-ish perpendicular spread (sum of uniforms) clustered on the band.
+      const spread = ((rng() + rng() + rng()) / 3 - 0.5) * 0.34;
+      this.bandStars.push({
+        u: U.lerp(a0.u, a1.u, t) + spread * 0.5,
+        v: U.lerp(a0.v, a1.v, t) + spread,
+        r: rng() * 0.9 + 0.15,
+        a: rng() * 0.35 + 0.05,
+        c: rng() < 0.5 ? "#cfe0ff" : "#e9e0ff",
+      });
+    }
+
+    // A few translucent nebula clouds along the band for depth.
+    this.galaxy = [];
+    const hues = ["120,150,255", "150,130,255", "90,170,230", "180,150,220"];
+    for (let i = 0; i < 7; i++) {
+      const t = (i + 0.5) / 7;
+      this.galaxy.push({
+        u: U.lerp(a0.u, a1.u, t) + (rng() - 0.5) * 0.12,
+        v: U.lerp(a0.v, a1.v, t) + (rng() - 0.5) * 0.12,
+        r: rng() * 0.16 + 0.12,
+        hue: hues[i % hues.length],
+        a: rng() * 0.05 + 0.03,
       });
     }
   };
@@ -66,11 +117,31 @@
     this.exhaust.length = 0;
     this.dust.length = 0;
     this.rcsPuffs.length = 0;
+    this._buildSurfaceDetail();
     // Snap camera immediately.
     this._computeCamTarget();
     this.cam.x = this.camTarget.x;
     this.cam.y = this.camTarget.y;
     this.cam.scale = this.camTarget.scale;
+  };
+
+  // Deterministic regolith grain along the surface (seeded from the terrain),
+  // so the ground reads as dusty rock rather than a flat silhouette.
+  Renderer.prototype._buildSurfaceDetail = function () {
+    const t = this.terrain;
+    const rng = U.makeRng(((t && t.seed) | 0) ^ 0x9e3779b9);
+    this.specks = [];
+    if (!t) return;
+    const n = Math.floor(t.width / 5);
+    for (let i = 0; i < n; i++) {
+      const x = rng() * t.width;
+      this.specks.push({
+        x,
+        depth: 2 + rng() * 46,            // metres below the rim (into the lit face)
+        r: 0.5 + rng() * 1.6,
+        tone: rng(),                       // 0 = dark pit, 1 = bright highlight
+      });
+    }
   };
 
   Renderer.prototype._computeCamTarget = function () {
@@ -103,12 +174,15 @@
     this.cam.x = U.lerp(this.cam.x, this.camTarget.x, k);
     this.cam.y = U.lerp(this.cam.y, this.camTarget.y, k);
     this.cam.scale = U.lerp(this.cam.scale, this.camTarget.scale, k);
+    this._t = (this._t || 0) + (opts.frozen ? 0 : dt);
 
     // Clear and paint the background in the untransformed frame so that the
     // clearRect/background fill always cover the full canvas. Impact shake is
     // applied only to the scene on top, avoiding uncleared bands at the edges.
     ctx.clearRect(0, 0, this.W, this.H);
     this._drawSky();
+    this._drawGalaxy();
+    this._drawSunGlow();
 
     const shake = opts.shake || 0;
     if (shake > 0) {
@@ -124,56 +198,127 @@
     this._drawTrail(opts);
     this._drawPredictor(opts);
     this._updateParticles(dt, opts);
+    this._drawGroundGlow();
     this._drawParticles();
     this._drawLander();
     this._drawApproachVector(opts);
 
     if (shake > 0) ctx.restore();
+
+    this._drawVignette();
   };
 
   // ---- Background -----------------------------------------------------------
   Renderer.prototype._drawSky = function () {
     const ctx = this.ctx;
     const g = ctx.createLinearGradient(0, 0, 0, this.H);
-    g.addColorStop(0, "#02040a");
-    g.addColorStop(0.55, "#040810");
-    g.addColorStop(1, "#070d18");
+    g.addColorStop(0, "#04050c");
+    g.addColorStop(0.5, "#05080f");
+    g.addColorStop(0.82, "#070b16");
+    g.addColorStop(1, "#0a0f1c");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, this.W, this.H);
+  };
+
+  // Soft Milky Way band + nebula clouds, drawn behind the stars.
+  Renderer.prototype._drawGalaxy = function () {
+    const ctx = this.ctx;
+    const px = -this.cam.x * 0.012;
+    const py = this.cam.y * 0.012;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const n of this.galaxy) {
+      const cx = n.u * this.W + px;
+      const cy = n.v * this.H + py;
+      const rr = n.r * Math.max(this.W, this.H);
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      g.addColorStop(0, "rgba(" + n.hue + "," + n.a + ")");
+      g.addColorStop(1, "rgba(" + n.hue + ",0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rr, 0, 6.2831);
+      ctx.fill();
+    }
+    // Faint band stars threaded through the nebula.
+    for (const s of this.bandStars) {
+      const x = s.u * this.W + px;
+      const y = s.v * this.H + py;
+      if (x < -4 || x > this.W + 4 || y < -4 || y > this.H + 4) continue;
+      ctx.globalAlpha = s.a;
+      ctx.fillStyle = s.c;
+      ctx.beginPath();
+      ctx.arc(x, y, s.r, 0, 6.2831);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  };
+
+  // A subtle key-light bloom bleeding in from the upper-left sun.
+  Renderer.prototype._drawSunGlow = function () {
+    const ctx = this.ctx;
+    const sx = this.W * 0.08, sy = this.H * 0.06;
+    const r = Math.max(this.W, this.H) * 0.5;
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+    g.addColorStop(0, "rgba(120,150,210,0.10)");
+    g.addColorStop(0.5, "rgba(90,120,180,0.04)");
+    g.addColorStop(1, "rgba(90,120,180,0)");
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, this.W, this.H);
+    ctx.restore();
   };
 
   Renderer.prototype._drawStars = function (dt) {
     const ctx = this.ctx;
     const px = -this.cam.x * 0.04;
     const py = this.cam.y * 0.04;
-    this._t = (this._t || 0) + dt;
     for (const s of this.stars) {
       let x = ((s.x + px) % this.W + this.W) % this.W;
       let y = ((s.y + py) % this.H + this.H) % this.H;
       const tw = 0.6 + 0.4 * Math.sin(this._t * 2 + s.tw);
       ctx.globalAlpha = s.a * tw;
-      ctx.fillStyle = "#cfe8ff";
+      ctx.fillStyle = s.c;
+      if (s.glow) {
+        ctx.shadowColor = s.c;
+        ctx.shadowBlur = 6 + s.r * 4;
+      }
       ctx.beginPath();
       ctx.arc(x, y, s.r, 0, 6.2831);
       ctx.fill();
+      if (s.glow) {
+        ctx.shadowBlur = 0;
+        // Tiny diffraction cross on the brightest stars.
+        ctx.globalAlpha = s.a * tw * 0.5;
+        ctx.strokeStyle = s.c;
+        ctx.lineWidth = 0.6;
+        const cr = s.r * 3.2;
+        ctx.beginPath();
+        ctx.moveTo(x - cr, y); ctx.lineTo(x + cr, y);
+        ctx.moveTo(x, y - cr); ctx.lineTo(x, y + cr);
+        ctx.stroke();
+      }
     }
     ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
   };
 
   Renderer.prototype._drawEarth = function () {
     const ctx = this.ctx;
     // Distant Earth with heavy parallax, fixed high in the sky.
-    const ex = this.W * 0.78 - this.cam.x * 0.015;
-    const ey = this.H * 0.2 + this.cam.y * 0.01;
-    const r = Math.min(this.W, this.H) * 0.11;
+    const ex = this.W * 0.8 - this.cam.x * 0.015;
+    const ey = this.H * 0.19 + this.cam.y * 0.01;
+    const r = Math.min(this.W, this.H) * 0.115;
 
-    // Glow halo
-    const glow = ctx.createRadialGradient(ex, ey, r * 0.7, ex, ey, r * 1.9);
-    glow.addColorStop(0, "rgba(90,160,255,0.30)");
-    glow.addColorStop(1, "rgba(90,160,255,0)");
+    // Atmospheric scattering halo (two layers: soft cyan + tighter blue).
+    let glow = ctx.createRadialGradient(ex, ey, r * 0.82, ex, ey, r * 2.1);
+    glow.addColorStop(0, "rgba(95,165,255,0.34)");
+    glow.addColorStop(0.5, "rgba(80,150,255,0.10)");
+    glow.addColorStop(1, "rgba(80,150,255,0)");
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(ex, ey, r * 1.9, 0, 6.2831);
+    ctx.arc(ex, ey, r * 2.1, 0, 6.2831);
     ctx.fill();
 
     ctx.save();
@@ -187,10 +332,10 @@
       ctx.drawImage(this.earthImg, ex - w / 2, ey - h / 2, w, h);
     } else {
       // Procedural blue marble fallback.
-      const og = ctx.createRadialGradient(ex - r * 0.3, ey - r * 0.3, r * 0.1, ex, ey, r);
-      og.addColorStop(0, "#7fb8ff");
+      const og = ctx.createRadialGradient(ex - r * 0.32, ey - r * 0.32, r * 0.1, ex, ey, r);
+      og.addColorStop(0, "#8fc2ff");
       og.addColorStop(0.5, "#2f6fc0");
-      og.addColorStop(1, "#10336a");
+      og.addColorStop(1, "#0e2c5e");
       ctx.fillStyle = og;
       ctx.fillRect(ex - r, ey - r, r * 2, r * 2);
       ctx.fillStyle = "rgba(120,200,150,0.55)";
@@ -200,14 +345,42 @@
       ctx.beginPath();
       ctx.ellipse(ex + r * 0.4, ey - r * 0.4, r * 0.3, r * 0.22, -0.5, 0, 6.2831);
       ctx.fill();
+      // Soft cloud swirls.
+      ctx.fillStyle = "rgba(235,245,255,0.35)";
+      ctx.beginPath();
+      ctx.ellipse(ex + r * 0.1, ey + r * 0.45, r * 0.45, r * 0.16, -0.3, 0, 6.2831);
+      ctx.fill();
     }
-    // Terminator shading.
-    const term = ctx.createLinearGradient(ex - r, ey, ex + r, ey);
+    // Day-side specular sheen toward the sun (upper-left).
+    const sheen = ctx.createRadialGradient(
+      ex - r * 0.42, ey - r * 0.42, r * 0.05,
+      ex - r * 0.42, ey - r * 0.42, r * 1.3);
+    sheen.addColorStop(0, "rgba(255,255,255,0.16)");
+    sheen.addColorStop(0.4, "rgba(255,255,255,0)");
+    ctx.fillStyle = sheen;
+    ctx.fillRect(ex - r, ey - r, r * 2, r * 2);
+    // Terminator: night falls toward the lower-right, with a warm sunset rim.
+    const term = ctx.createLinearGradient(ex - r * 0.7, ey - r * 0.7, ex + r, ey + r);
     term.addColorStop(0, "rgba(0,0,10,0)");
-    term.addColorStop(0.62, "rgba(0,0,10,0.1)");
-    term.addColorStop(1, "rgba(0,0,10,0.78)");
+    term.addColorStop(0.5, "rgba(2,4,16,0.10)");
+    term.addColorStop(0.66, "rgba(20,10,4,0.18)");   // dusk warmth
+    term.addColorStop(0.78, "rgba(0,0,12,0.55)");
+    term.addColorStop(1, "rgba(0,0,8,0.9)");
     ctx.fillStyle = term;
     ctx.fillRect(ex - r, ey - r, r * 2, r * 2);
+    ctx.restore();
+
+    // Bright atmospheric limb on the sunlit edge.
+    ctx.save();
+    ctx.lineWidth = Math.max(1, r * 0.03);
+    const limb = ctx.createLinearGradient(ex - r, ey - r, ex + r, ey + r);
+    limb.addColorStop(0, "rgba(170,210,255,0.9)");
+    limb.addColorStop(0.5, "rgba(120,180,255,0.25)");
+    limb.addColorStop(1, "rgba(120,180,255,0)");
+    ctx.strokeStyle = limb;
+    ctx.beginPath();
+    ctx.arc(ex, ey, r, 0, 6.2831);
+    ctx.stroke();
     ctx.restore();
   };
 
@@ -228,25 +401,60 @@
     ctx.lineTo(this._sx(t.points[i1].x), this.H + 4);
     ctx.closePath();
 
-    const g = ctx.createLinearGradient(0, this._sy(t.padHeight + 200), 0, this.H);
-    g.addColorStop(0, "#5a5e68");
-    g.addColorStop(0.4, "#3b3f48");
-    g.addColorStop(1, "#191b22");
+    const g = ctx.createLinearGradient(0, this._sy(t.padHeight + 220), 0, this.H);
+    g.addColorStop(0, "#6b6e78");
+    g.addColorStop(0.32, "#494d57");
+    g.addColorStop(0.7, "#2c2f38");
+    g.addColorStop(1, "#15171e");
     ctx.fillStyle = g;
     ctx.fill();
 
-    // Sunlit rim highlight.
-    ctx.beginPath();
-    for (let i = i0; i <= i1; i++) {
-      const x = this._sx(t.points[i].x);
-      const y = this._sy(t.points[i].y);
-      if (i === i0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = "rgba(210,220,235,0.55)";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    // Earthshine — a faint cool fill light on the regolith from the bright Earth.
+    ctx.save();
+    ctx.clip();
+    const es = ctx.createLinearGradient(0, this._sy(t.padHeight + 160), 0, this.H);
+    es.addColorStop(0, "rgba(90,120,180,0.10)");
+    es.addColorStop(1, "rgba(90,120,180,0)");
+    ctx.fillStyle = es;
+    ctx.fillRect(0, 0, this.W, this.H);
 
-    // Craters.
+    // Regolith grain: scattered lit/dark specks on the front face.
+    for (const sp of this.specks) {
+      if (sp.x < left || sp.x > right) continue;
+      const gx = this._sx(sp.x);
+      const gy = this._sy(t.heightAt(sp.x) - sp.depth);
+      const rr = sp.r * Math.max(0.5, this.cam.scale * 0.7);
+      if (rr < 0.4) continue;
+      if (sp.tone > 0.5) {
+        ctx.globalAlpha = (sp.tone - 0.5) * 0.5;
+        ctx.fillStyle = "#d7dbe6";        // sunlit pebble
+      } else {
+        ctx.globalAlpha = (0.5 - sp.tone) * 0.6;
+        ctx.fillStyle = "#0b0c11";        // tiny pit / shadow
+      }
+      ctx.beginPath();
+      ctx.arc(gx, gy, rr, 0, 6.2831);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // Sun-lit rim: brightness tracks how each segment faces the sun.
+    for (let i = i0; i < i1; i++) {
+      const ax = this._sx(t.points[i].x),     ay = this._sy(t.points[i].y);
+      const bx = this._sx(t.points[i + 1].x), by = this._sy(t.points[i + 1].y);
+      const slope = t.slopeAt(t.points[i].x);
+      // World-space up-normal of the segment, dotted with the sun direction.
+      const lit = U.clamp(-Math.sin(slope) * SUN.x + Math.cos(slope) * SUN.y, 0, 1);
+      ctx.strokeStyle = "rgba(248,244,236," + (0.18 + lit * 0.6) + ")";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    }
+
+    // Craters with sun-lit rims and shadowed floors (light from upper-left).
     ctx.save();
     for (const cr of t.craters) {
       if (cr.x < left || cr.x > right) continue;
@@ -254,14 +462,25 @@
       const cy = this._sy(cr.y);
       const rr = cr.r * this.cam.scale;
       if (rr < 1.5) continue;
-      ctx.fillStyle = "rgba(10,11,16,0.5)";
+      // Shadowed bowl interior.
+      const bowl = ctx.createRadialGradient(
+        cx + rr * 0.35, cy + rr * 0.2, rr * 0.1, cx, cy + rr * 0.15, rr);
+      bowl.addColorStop(0, "rgba(4,5,8,0.66)");
+      bowl.addColorStop(1, "rgba(4,5,8,0)");
+      ctx.fillStyle = bowl;
       ctx.beginPath();
-      ctx.ellipse(cx, cy + rr * 0.25, rr, rr * 0.45, 0, 0, 6.2831);
+      ctx.ellipse(cx, cy + rr * 0.22, rr, rr * 0.5, 0, 0, 6.2831);
       ctx.fill();
-      ctx.strokeStyle = "rgba(200,208,222,0.30)";
-      ctx.lineWidth = 1;
+      // Sunlit upper-left rim arc.
+      ctx.strokeStyle = "rgba(232,236,246,0.5)";
+      ctx.lineWidth = Math.max(1, rr * 0.12);
       ctx.beginPath();
-      ctx.ellipse(cx, cy + rr * 0.1, rr, rr * 0.45, 0, Math.PI, 6.2831);
+      ctx.ellipse(cx, cy + rr * 0.1, rr, rr * 0.46, 0, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+      // Soft shadowed lower-right rim.
+      ctx.strokeStyle = "rgba(2,3,6,0.5)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + rr * 0.28, rr, rr * 0.46, 0, Math.PI * 0.08, Math.PI * 0.9);
       ctx.stroke();
     }
     ctx.restore();
@@ -276,31 +495,45 @@
     const sx0 = this._sx(x0);
     const sx1 = this._sx(x1);
     const sy = this._sy(padY);
-
-    // Pad surface bar.
-    ctx.fillStyle = "rgba(40,46,58,0.9)";
-    ctx.fillRect(sx0, sy - 2, sx1 - sx0, 4);
-
-    // Center cross / target marker.
     const cx = this._sx(t.padCenterX);
-    ctx.strokeStyle = "rgba(79,210,255,0.85)";
+    const pulse = 0.5 + 0.5 * Math.sin((this._t || 0) * 3);
+
+    // Soft floodlit landing zone glow above the pad.
+    const zone = ctx.createLinearGradient(0, sy - 60, 0, sy);
+    zone.addColorStop(0, "rgba(79,210,255,0)");
+    zone.addColorStop(1, "rgba(79,210,255," + (0.06 + pulse * 0.05) + ")");
+    ctx.fillStyle = zone;
+    ctx.fillRect(sx0, sy - 60, sx1 - sx0, 60);
+
+    // Pad surface bar with a lit leading edge.
+    ctx.fillStyle = "rgba(46,52,66,0.95)";
+    ctx.fillRect(sx0, sy - 2, sx1 - sx0, 5);
+    ctx.fillStyle = "rgba(150,170,200,0.5)";
+    ctx.fillRect(sx0, sy - 2, sx1 - sx0, 1);
+
+    // Center cross / target marker with a faint ring.
+    ctx.strokeStyle = "rgba(79,210,255,0.9)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(cx - 10, sy);
-    ctx.lineTo(cx + 10, sy);
+    ctx.moveTo(cx - 12, sy);
+    ctx.lineTo(cx + 12, sy);
     ctx.stroke();
+    ctx.globalAlpha = 0.35 + pulse * 0.4;
+    ctx.beginPath();
+    ctx.arc(cx, sy - 1, 9, Math.PI, 6.2831);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
 
     // Blinking beacon lights at the pad edges.
     const blink = (Math.sin((this._t || 0) * 6) > 0);
-    const lights = [sx0, sx1];
-    for (const lx of lights) {
-      ctx.fillStyle = blink ? "#46f08a" : "rgba(70,240,138,0.25)";
+    for (const lx of [sx0, sx1]) {
+      ctx.fillStyle = blink ? "#5cf59a" : "rgba(70,240,138,0.25)";
       ctx.beginPath();
-      ctx.arc(lx, sy - 5, 3.2, 0, 6.2831);
+      ctx.arc(lx, sy - 5, 3.4, 0, 6.2831);
       ctx.fill();
       if (blink) {
         ctx.shadowColor = "#46f08a";
-        ctx.shadowBlur = 12;
+        ctx.shadowBlur = 14;
         ctx.beginPath();
         ctx.arc(lx, sy - 5, 2, 0, 6.2831);
         ctx.fill();
@@ -308,16 +541,19 @@
       }
     }
 
-    // Chevron markers pointing to the pad.
-    ctx.strokeStyle = "rgba(255,182,72,0.8)";
+    // Stacked chevrons on both shoulders, pointing up toward the pad.
+    ctx.strokeStyle = "rgba(255,182,72,0.85)";
     ctx.lineWidth = 2;
-    for (let i = 1; i <= 3; i++) {
-      const off = i * 9;
-      ctx.beginPath();
-      ctx.moveTo(sx0 - 4, sy - off - 6);
-      ctx.lineTo(sx0 - 4 + 6, sy - off - 12);
-      ctx.lineTo(sx0 - 4 + 12, sy - off - 6);
-      ctx.stroke();
+    for (const dir of [-1, 1]) {
+      const ex = dir < 0 ? sx0 - 9 : sx1 + 9;
+      for (let i = 0; i < 3; i++) {
+        const off = i * 8;
+        ctx.beginPath();
+        ctx.moveTo(ex - 6, sy - off - 4);
+        ctx.lineTo(ex, sy - off - 10);
+        ctx.lineTo(ex + 6, sy - off - 4);
+        ctx.stroke();
+      }
     }
   };
 
@@ -367,16 +603,27 @@
     ctx.lineTo(-28, -56);
     ctx.closePath();
     const body = ctx.createLinearGradient(-28, 0, 28, 0);
-    body.addColorStop(0, "#8a6a2f");
-    body.addColorStop(0.45, "#d9b25a");
-    body.addColorStop(0.55, "#f0d27e");
-    body.addColorStop(1, "#7a5e2a");
+    body.addColorStop(0, "#7c5d28");
+    body.addColorStop(0.4, "#d9b25a");
+    body.addColorStop(0.52, "#f4d889");
+    body.addColorStop(0.62, "#caa24f");
+    body.addColorStop(1, "#6b521f");
     ctx.fillStyle = body;
     ctx.fill();
     ctx.strokeStyle = "#3a2f14";
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
+    // Crinkled gold-foil highlights.
+    ctx.strokeStyle = "rgba(255,236,176,0.5)";
+    ctx.lineWidth = 0.8;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * 12 - 3, -36);
+      ctx.lineTo(i * 12 + 2, -56);
+      ctx.lineTo(i * 12 - 2, -76);
+      ctx.stroke();
+    }
     // Foil panel seams.
     ctx.strokeStyle = "rgba(60,48,20,0.5)";
     ctx.lineWidth = 1;
@@ -395,12 +642,18 @@
     ctx.lineTo(-7, -16);
     ctx.closePath();
     const bell = ctx.createLinearGradient(0, -34, 0, -16);
-    bell.addColorStop(0, "#9aa0ad");
-    bell.addColorStop(1, "#4c5160");
+    bell.addColorStop(0, "#aab0bd");
+    bell.addColorStop(0.5, "#6c7280");
+    bell.addColorStop(1, "#3a3f4c");
     ctx.fillStyle = bell;
     ctx.fill();
     ctx.strokeStyle = "#2a2e38";
     ctx.stroke();
+    // Dark throat.
+    ctx.fillStyle = "rgba(8,9,13,0.7)";
+    ctx.beginPath();
+    ctx.ellipse(0, -33, 6, 1.6, 0, 0, 6.2831);
+    ctx.fill();
 
     // --- Ascent module ---
     ctx.beginPath();
@@ -409,30 +662,69 @@
     ctx.lineTo(12, -100);
     ctx.lineTo(-12, -100);
     ctx.closePath();
-    ctx.fillStyle = "#cdd2dc";
+    const cabin = ctx.createLinearGradient(-16, 0, 16, 0);
+    cabin.addColorStop(0, "#aeb4c0");
+    cabin.addColorStop(0.5, "#e2e6ee");
+    cabin.addColorStop(1, "#9098a6");
+    ctx.fillStyle = cabin;
     ctx.fill();
     ctx.strokeStyle = "#5a5f6b";
     ctx.stroke();
 
-    // Window
-    ctx.fillStyle = "#1c5a7a";
+    // High-gain antenna dish.
+    ctx.strokeStyle = "#aab0bd";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(20, -86); ctx.lineTo(28, -94);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(210,220,235,0.85)";
+    ctx.beginPath();
+    ctx.ellipse(29, -95, 4.5, 2.4, -0.6, 0, 6.2831);
+    ctx.fill();
+
+    // Window.
+    ctx.fillStyle = "#16455f";
     ctx.beginPath();
     ctx.arc(0, -90, 4.5, 0, 6.2831);
     ctx.fill();
-    ctx.strokeStyle = "#8fd6ff";
+    ctx.strokeStyle = "#9fdcff";
     ctx.lineWidth = 1.2;
     ctx.stroke();
+    // Sun glint in the glass.
+    ctx.fillStyle = "rgba(220,245,255,0.85)";
+    ctx.beginPath();
+    ctx.arc(-1.4, -91.4, 1.2, 0, 6.2831);
+    ctx.fill();
 
-    // ARTEMIS roundel / flag accent
+    // Flag / roundel accents.
     ctx.fillStyle = "#ff4d5e";
     ctx.fillRect(-20, -60, 6, 6);
     ctx.fillStyle = "#4fd2ff";
     ctx.fillRect(14, -60, 6, 6);
 
-    // RCS thruster nubs (top corners)
+    // RCS thruster nubs (top corners).
     ctx.fillStyle = "#9aa0ad";
     ctx.fillRect(-18, -98, 4, 5);
     ctx.fillRect(14, -98, 4, 5);
+
+    // --- Coherent lighting passes over the whole vehicle ---
+    // Sun rim light on the upper-left silhouette.
+    ctx.strokeStyle = "rgba(255,246,224,0.5)";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-28, -56);
+    ctx.lineTo(-22, -78);
+    ctx.lineTo(-16, -78);
+    ctx.lineTo(-12, -100);
+    ctx.stroke();
+    // Cool earthshine fill down the right flank.
+    ctx.strokeStyle = "rgba(120,160,220,0.28)";
+    ctx.beginPath();
+    ctx.moveTo(28, -56);
+    ctx.lineTo(22, -78);
+    ctx.lineTo(16, -78);
+    ctx.lineTo(12, -100);
+    ctx.stroke();
 
     ctx.restore();
   };
@@ -440,12 +732,20 @@
   Renderer.prototype._drawFlame = function (intensity) {
     const ctx = this.ctx;
     const flick = 0.82 + Math.random() * 0.36;
-    const len = (40 + intensity * 130) * flick;
+    const len = (40 + intensity * 140) * flick;
     const w = 9 + intensity * 7;
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
-    // Outer plume
+    // Nozzle bloom.
+    const bloom = ctx.createRadialGradient(0, -18, 0, 0, -18, w * 1.8);
+    bloom.addColorStop(0, "rgba(200,225,255,0.85)");
+    bloom.addColorStop(1, "rgba(150,190,255,0)");
+    ctx.fillStyle = bloom;
+    ctx.beginPath();
+    ctx.arc(0, -18, w * 1.8, 0, 6.2831);
+    ctx.fill();
+    // Outer plume.
     let g = ctx.createLinearGradient(0, -16, 0, -16 + len);
     g.addColorStop(0, "rgba(120,200,255,0.95)");
     g.addColorStop(0.3, "rgba(150,180,255,0.6)");
@@ -453,21 +753,32 @@
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.moveTo(-w, -16);
-    ctx.lineTo(w, -16);
-    ctx.lineTo(0, -16 + len);
+    ctx.quadraticCurveTo(-w * 0.5, -16 + len * 0.6, 0, -16 + len);
+    ctx.quadraticCurveTo(w * 0.5, -16 + len * 0.6, w, -16);
     ctx.closePath();
     ctx.fill();
-    // Inner core
-    g = ctx.createLinearGradient(0, -16, 0, -16 + len * 0.6);
+    // Inner core.
+    g = ctx.createLinearGradient(0, -16, 0, -16 + len * 0.62);
     g.addColorStop(0, "rgba(255,255,255,1)");
+    g.addColorStop(0.6, "rgba(210,235,255,0.7)");
     g.addColorStop(1, "rgba(180,220,255,0)");
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.moveTo(-w * 0.45, -16);
-    ctx.lineTo(w * 0.45, -16);
-    ctx.lineTo(0, -16 + len * 0.6);
+    ctx.quadraticCurveTo(0, -16 + len * 0.5, 0, -16 + len * 0.62);
+    ctx.quadraticCurveTo(0, -16 + len * 0.5, w * 0.45, -16);
     ctx.closePath();
     ctx.fill();
+    // Mach shock diamonds along the core.
+    ctx.fillStyle = "rgba(235,245,255,0.8)";
+    const diamonds = 3;
+    for (let i = 1; i <= diamonds; i++) {
+      const dy = -16 + (len * 0.5) * (i / (diamonds + 1));
+      const dw = w * 0.32 * (1 - i / (diamonds + 2));
+      ctx.beginPath();
+      ctx.ellipse(0, dy, dw, dw * 1.6, 0, 0, 6.2831);
+      ctx.fill();
+    }
     ctx.restore();
   };
 
@@ -546,6 +857,31 @@
     if (!opts.frozen) { step(this.exhaust); step(this.dust); step(this.rcsPuffs); }
   };
 
+  // Soft pool of light where the plume scours the surface on final approach.
+  Renderer.prototype._drawGroundGlow = function () {
+    const l = this.lander;
+    if (!l || l.thrust <= 0) return;
+    const groundH = this.terrain.heightAt(l.x);
+    const alt = l.y - groundH;
+    if (alt < 0 || alt > 80) return;
+    const ctx = this.ctx;
+    const gx = this._sx(l.x);
+    const gy = this._sy(groundH);
+    const k = (1 - alt / 80) * l.effThrottle;
+    const rr = (26 + 40 * l.effThrottle) * this.cam.scale;
+    const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, rr);
+    g.addColorStop(0, "rgba(190,220,255," + (0.5 * k) + ")");
+    g.addColorStop(0.5, "rgba(140,180,255," + (0.18 * k) + ")");
+    g.addColorStop(1, "rgba(140,180,255,0)");
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(gx, gy, rr, rr * 0.42, 0, 0, 6.2831);
+    ctx.fill();
+    ctx.restore();
+  };
+
   Renderer.prototype._drawParticles = function () {
     const ctx = this.ctx;
     ctx.save();
@@ -553,7 +889,7 @@
     for (const p of this.exhaust) {
       const a = 1 - p.age / p.max;
       ctx.globalAlpha = a * 0.7;
-      ctx.fillStyle = a > 0.5 ? "#dff0ff" : "#7fb0ff";
+      ctx.fillStyle = a > 0.5 ? "#eaf4ff" : "#7fb0ff";
       ctx.beginPath();
       ctx.arc(this._sx(p.x), this._sy(p.y), p.r * this.cam.scale * 1.2, 0, 6.2831);
       ctx.fill();
@@ -573,7 +909,7 @@
     for (const p of this.dust) {
       const a = 1 - p.age / p.max;
       ctx.globalAlpha = a * 0.5;
-      ctx.fillStyle = "#b9bccb";
+      ctx.fillStyle = "#b3a89a";            // warm lunar regolith
       ctx.beginPath();
       ctx.arc(this._sx(p.x), this._sy(p.y), p.r * this.cam.scale, 0, 6.2831);
       ctx.fill();
@@ -699,6 +1035,18 @@
     ctx.fillText(p.descend.toFixed(1) + " m/s", mx, my - 12);
     ctx.restore();
     ctx.globalAlpha = 1;
+  };
+
+  // ---- Cinematic vignette ---------------------------------------------------
+  Renderer.prototype._drawVignette = function () {
+    const ctx = this.ctx;
+    const g = ctx.createRadialGradient(
+      this.W * 0.5, this.H * 0.46, Math.min(this.W, this.H) * 0.34,
+      this.W * 0.5, this.H * 0.5, Math.max(this.W, this.H) * 0.75);
+    g.addColorStop(0, "rgba(2,4,10,0)");
+    g.addColorStop(1, "rgba(2,4,10,0.5)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, this.W, this.H);
   };
 
   global.ARTEMIS.Renderer = Renderer;

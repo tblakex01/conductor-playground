@@ -45,7 +45,8 @@ function makeCtx() {
     // methods (no-ops)
     setTransform() {}, clearRect() {}, fillRect() {}, strokeRect() {},
     beginPath() {}, closePath() {}, moveTo() {}, lineTo() {}, arc() {},
-    arcTo() {}, ellipse() {}, rect() {}, fill() {}, stroke() {}, clip() {},
+    arcTo() {}, ellipse() {}, rect() {}, roundRect() {}, fill() {}, stroke() {}, clip() {},
+    quadraticCurveTo() {}, bezierCurveTo() {},
     save() {}, restore() {}, translate() {}, rotate() {}, scale() {},
     setLineDash() {}, drawImage() {}, fillText() {}, strokeText() {},
     measureText() { return { width: 0 }; },
