@@ -77,11 +77,15 @@
     },
 
     // --- NASA imagery (loaded by the user's browser; graceful fallback) -----
-    // The Blue Marble / Earthrise imagery is in the public domain (NASA).
+    // "Blue Marble 2012" is a true-colour VIIRS composite released by NASA and
+    // is in the public domain. A trimmed copy is bundled locally so the real
+    // photograph always shows (no CORS / hot-link / offline surprises); the
+    // remote NASA image-library URLs below act as higher-resolution fallbacks.
     ASSETS: {
       earth: [
-        "https://upload.wikimedia.org/wikipedia/commons/9/97/The_Earth_seen_from_Apollo_17.jpg",
-        "https://www.nasa.gov/wp-content/uploads/2023/03/as17-148-22727.jpg",
+        "assets/earth-blue-marble.jpg",
+        "https://images-assets.nasa.gov/image/GSFC_20171208_Archive_e001788/GSFC_20171208_Archive_e001788~medium.jpg",
+        "https://images-assets.nasa.gov/image/as17-148-22727/as17-148-22727~medium.jpg",
       ],
     },
   };
